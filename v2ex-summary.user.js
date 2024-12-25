@@ -2,7 +2,7 @@
 // @name         V2EX 文章总结助手
 // @name:zh-CN   V2EX 文章总结助手
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      2.0
 // @description  为 V2EX 帖子生成总结
 // @description:zh-CN  为 V2EX 帖子生成总结
 // @author       Jandaes
@@ -15,666 +15,361 @@
 // @copyright    2024, Jandaes (https://github.com/Jandaes)
 // ==/UserScript==
 
-(function() {
+(function(){
     'use strict';
-
-    // 在脚本开头添加 marked 库
-    const markedScript = document.createElement('script');
-    markedScript.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
-    document.head.appendChild(markedScript);
-
-    function createSettingsModal() {
-        // 从localStorage获取用户的主题偏好，如果没有则使用系统设置
-        const savedTheme = localStorage.getItem('v2exSummaryTheme');
-        const systemDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const isDarkMode = savedTheme ? savedTheme === 'dark' : systemDarkMode;
-
-        // 定义深色/浅色主题的颜色
-        const getThemeColors = (dark) => ({
-            background: dark ? '#2d2d2d' : 'white',
-            text: dark ? '#e0e0e0' : '#333',
-            inputBg: dark ? '#3d3d3d' : '#f5f5f5',
-            inputBorder: dark ? '#4d4d4d' : '#ddd',
-            buttonBg: dark ? '#4d4d4d' : '#e2e2e2',
-            buttonHoverBg: dark ? '#5d5d5d' : '#d2d2d2',
-            modalOverlay: 'rgba(0, 0, 0, 0.6)'
+    const d=document,ls=localStorage,w=window;
+    const $=(s,p=d)=>p.querySelector(s);
+    const t={dark:{bg:'#2d2d2d',t:'#e0e0e0',i:'#3d3d3d',b:'#4d4d4d'},light:{bg:'#fff',t:'#333',i:'#f5f5f5',b:'#ddd'}};
+    const store={get:k=>JSON.parse(ls.getItem(k)||'{}'),set:(k,v)=>ls.setItem(k,JSON.stringify(v))};
+    const defaultPrompt='只精简总结文章内容和评论的核心要点、不需要加入你的任何观点。分别输出文章内容和用户评论';
+    
+    function modal(){
+        const isDark=store.get('theme')==='dark'||w.matchMedia('(prefers-color-scheme:dark)').matches;
+        const th=t[isDark?'dark':'light'];
+        const m=createElement('div',{
+            style:`position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);display:flex;justify-content:center;align-items:center;z-index:1000`
+        });
+        const c=createElement('div',{
+            style:`position:relative;background:${th.bg};padding:25px;border-radius:12px;width:450px;max-width:90%;color:${th.t};padding-bottom:20px`
         });
 
-        let theme = getThemeColors(isDarkMode);
-
-        // 创建模态框容器
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: ${theme.modalOverlay};
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            backdrop-filter: blur(3px);
-        `;
-
-        // 创建模态框内容
-        const modalContent = document.createElement('div');
-        modalContent.style.cssText = `
-            position: relative;
-            background: ${theme.background};
-            padding: 25px;
-            border-radius: 12px;
-            width: 450px;
-            max-width: 90%;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-            color: ${theme.text};
-            padding-bottom: 20px;
-        `;
-
-        // 创建标题和主题切换
-        const titleContainer = document.createElement('div');
-        titleContainer.style.cssText = `
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid ${theme.inputBorder};
-        `;
-
-        const title = document.createElement('h3');
-        title.textContent = 'V2EX 文章总结助手设置';
-        title.style.cssText = `
-            margin: 0;
-            font-size: 18px;
-            font-weight: 500;
-        `;
-
-        const themeToggle = document.createElement('div');
-        themeToggle.style.cssText = `display: flex; align-items: center; gap: 8px;`;
-        themeToggle.innerHTML = `
-            <span style="font-size: 14px;">主题</span>
-            <select id="themeSelect" class="setting-input" style="width: auto; padding: 4px 8px;">
-                <option value="system" ${!savedTheme ? 'selected' : ''}>跟随系统</option>
-                <option value="light" ${savedTheme === 'light' ? 'selected' : ''}>浅色</option>
-                <option value="dark" ${savedTheme === 'dark' ? 'selected' : ''}>深色</option>
-            </select>
-        `;
-
-        titleContainer.appendChild(title);
-        titleContainer.appendChild(themeToggle);
-        modalContent.appendChild(titleContainer);
-
-        // 创建表单
-        const form = document.createElement('form');
-        form.innerHTML = `
-            <style>
-                .setting-group {
-                    margin-bottom: 20px;
-                    width: 90%;
-                    margin-left: auto;
-                    margin-right: auto;
-                    display: flex;
-                    align-items: center;
-                    gap: 15px;
-                }
-                .setting-label {
-                    width: 85px;
-                    text-align: right;
-                    flex-shrink: 0;
-                    font-weight: 500;
-                }
-                .setting-input {
-                    flex: 1;
-                    padding: 8px 12px;
-                    border: 1px solid ${theme.inputBorder};
-                    border-radius: 6px;
-                    background: ${theme.inputBg};
-                    color: ${theme.text};
-                    font-size: 14px;
-                    transition: all 0.2s ease;
-                }
-                .setting-input:focus {
-                    outline: none;
-                    border-color: #0066cc;
-                    box-shadow: 0 0 0 2px rgba(0,102,204,0.2);
-                }
-                .password-container {
-                    position: relative;
-                    flex: 1;
-                    display: flex;
-                }
-                .password-container .setting-input {
-                    width: 100%;
-                }
-                .password-toggle {
-                    position: absolute;
-                    right: 12px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    cursor: pointer;
-                    user-select: none;
-                    color: ${theme.text};
-                    opacity: 0.7;
-                    font-size: 14px;
-                }
-                .password-toggle:hover {
-                    opacity: 1;
-                }
-                .button-container {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-top: 25px;
-                    padding: 0 5%;
-                }
-                .button-group {
-                    display: flex;
-                    gap: 10px;
-                }
-                .github-link {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    color: ${theme.text};
-                    text-decoration: none;
-                    opacity: 0.8;
-                    transition: opacity 0.2s ease;
-                    font-size: 14px;
-                }
-                .github-icon {
-                    width: 16px;
-                    height: 16px;
-                }
-                .modal-button {
-                    padding: 8px 16px;
-                    border: none;
-                    border-radius: 6px;
-                    background: ${theme.buttonBg};
-                    color: ${theme.text};
-                    cursor: pointer;
-                    font-size: 14px;
-                    transition: all 0.2s ease;
-                }
-                .modal-button:hover {
-                    background: ${theme.buttonHoverBg};
-                }
-                .modal-button.primary {
-                    background: #0066cc;
-                    color: white;
-                }
-                .modal-button.primary:hover {
-                    background: #0052a3;
-                }
-            </style>
-            <div class="setting-group">
-                <label class="setting-label">API URL：</label>
-                <input type="text" id="apiUrl" class="setting-input" placeholder="请输入 API 地址">
-            </div>
-            <div class="setting-group">
-                <label class="setting-label">API Key：</label>
-                <div class="password-container">
-                    <input type="password" id="apiKey" class="setting-input" placeholder="请输入 API Key">
-                    <span class="password-toggle" id="togglePassword">🔒</span>
+        // 先将 modalContent 添加到 modal
+        m.appendChild(c);
+        
+        c.innerHTML=`
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:1px solid ${th.b};padding-bottom:10px">
+                <h3 style="margin:0;font-size:18px">V2EX 文章总结助手设置</h3>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:14px">主题</span>
+                    <select id="theme" style="padding:4px 8px">
+                        <option value="system">跟随系统</option>
+                        <option value="light">浅色</option>
+                        <option value="dark">深色</option>
+                    </select>
                 </div>
             </div>
-            <div class="setting-group">
-                <label class="setting-label">模型名称：</label>
-                <input type="text" id="modelName" class="setting-input" placeholder="请输入模型名称">
+            <div class="form">
+                <div class="group"><label>API URL：</label><input id="url" placeholder="输入API地址"></div>
+                <div class="group"><label>API Key：</label><div class="pwd"><input type="password" id="key" placeholder="输入API Key"><span class="eye">🔒</span></div></div>
+                <div class="group"><label>模型名称：</label><input id="model" placeholder="输入模型名称"></div>
+                <div class="group"><label>系统提示词：</label><textarea id="prompt" placeholder="请输入"></textarea></div>
             </div>
-            <div class="setting-group">
-                <label class="setting-label">系统提示词：</label>
-                <textarea id="prompt" class="setting-input" style="height: 100px; resize: vertical;" 
-                    placeholder="请输入"></textarea>
-            </div>
-            <div class="button-container">
-                <a href="https://github.com/Jandaes/v2ex_ai" target="_blank" class="github-link">
-                    <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:25px">
+                <a href="https://github.com/Jandaes/v2ex_ai" target="_blank" class="github">
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                     GitHub
                 </a>
-                <div class="button-group">
-                    <button type="button" id="cancelBtn" class="modal-button">取消</button>
-                    <button type="button" id="saveBtn" class="modal-button primary">保存</button>
+                <div style="display:flex;gap:10px">
+                    <button id="cancel">取消</button>
+                    <button id="save" class="primary">保存</button>
                 </div>
             </div>
         `;
-
-        modalContent.appendChild(form);
-
-        // 添加这一行，将 modalContent 添加到 modal 中
-        modal.appendChild(modalContent);
-
-        // 主题切换功能
-        const updateTheme = (newTheme) => {
-            theme = getThemeColors(newTheme === 'dark');
-            // 更新所有相关样式...
-            modalContent.style.background = theme.background;
-            modalContent.style.color = theme.text;
-            // 更新其他元素样式...
-        };
-
-        const themeSelect = modal.querySelector('#themeSelect');
-        themeSelect.addEventListener('change', (e) => {
-            const selectedTheme = e.target.value;
-            if (selectedTheme === 'system') {
-                localStorage.removeItem('v2exSummaryTheme');
-                updateTheme(systemDarkMode ? 'dark' : 'light');
-            } else {
-                localStorage.setItem('v2exSummaryTheme', selectedTheme);
-                updateTheme(selectedTheme);
-            }
-        });
-
-        // API Key 显示切换功能
-        const togglePassword = modal.querySelector('#togglePassword');
-        const apiKeyInput = modal.querySelector('#apiKey');
-        togglePassword.addEventListener('click', () => {
-            const type = apiKeyInput.type === 'password' ? 'text' : 'password';
-            apiKeyInput.type = type;
-            togglePassword.textContent = type === 'password' ? '🔒' : '🔓';
-        });
-
-        // 修改默认提示词，确保每行都左对齐
-        const defaultPrompt = `只精简总结以下内容的核心要点、不需要加入你的任何观点`;
-
-        // 加载已保存的设置
-        const loadSettings = () => {
-            const settings = JSON.parse(localStorage.getItem('v2exSummarySettings') || '{}');
-            document.getElementById('apiUrl').value = settings.apiUrl || '';
-            document.getElementById('apiKey').value = settings.apiKey || '';
-            document.getElementById('modelName').value = settings.modelName || '';
-            document.getElementById('prompt').value = settings.prompt || defaultPrompt;  // 使用默认提示词
-        };
-
-        // 保存设置
-        const saveSettings = () => {
-            const settings = {
-                apiUrl: document.getElementById('apiUrl').value,
-                apiKey: document.getElementById('apiKey').value,
-                modelName: document.getElementById('modelName').value,
-                prompt: document.getElementById('prompt').value
-            };
-            localStorage.setItem('v2exSummarySettings', JSON.stringify(settings));
-            modal.remove();
-        };
-
-        // 添加事件监听
-        modal.querySelector('#saveBtn').addEventListener('click', saveSettings);
-        modal.querySelector('#cancelBtn').addEventListener('click', () => modal.remove());
-
-        // 点击外部关闭
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.remove();
-            }
-        });
-
-        // 显示模态框并加载设置
-        document.body.appendChild(modal);
-        loadSettings();
-    }
-
-    function addSummaryButton() {
-        const header = document.querySelector('.header');
-        if (header) {
-            const grayDiv = header.querySelector('.gray');
-            if (grayDiv && !grayDiv.querySelector('.summary-button')) {
-                // 添加总结按钮
-                grayDiv.insertAdjacentText('beforeend', ' ∙ ');
-                
-                // 创建总结按钮
-                const summaryButton = document.createElement('a');
-                summaryButton.href = 'javascript:void(0);';
-                summaryButton.className = 'tb summary-button';
-                summaryButton.innerHTML = '总结 <span style="font-size: 14px;">✨</span>';
-                
-                // 添加点击事件
-                summaryButton.addEventListener('click', async () => {
-                    const content = getTopicContent();
-                    if (content) {
-                        const summaryContainer = addSummaryContainer();
-                        if (summaryContainer) {
-                            const summaryContent = summaryContainer.querySelector('.summary-content');
-                            const topicId = getTopicId();
-                            
-                            // 检查是否有保存的总结
-                            const savedSummary = getSavedSummary(topicId);
-                            if (savedSummary) {
-                                // 如果有保存的总结，直接显示
-                                summaryContent.innerHTML = savedSummary;
-                                summaryContainer.style.display = 'block';
-                            } else {
-                                // 如果没有保存的总结，发起新请求
-                                summaryContent.textContent = '正在生成总结...';
-                                summaryContainer.style.display = 'block';
-
-                                const summary = await sendSummaryRequest(content);
-                                if (summary) {
-                                    // 保存并显示新的总结
-                                    saveSummary(topicId, summary);
-                                    summaryContent.innerHTML = summary;
-                                } else {
-                                    summaryContent.textContent = '生成总结失败，请检查设置和网络连接';
-                                }
-                            }
-                        }
-                    }
-                });
-
-                grayDiv.appendChild(summaryButton);
-
-                // 添加隔符和设置按钮
-                grayDiv.insertAdjacentText('beforeend', ' ∙ ');
-                
-                // 创建设置按钮
-                const settingsButton = document.createElement('a');
-                settingsButton.href = 'javascript:void(0);';
-                settingsButton.className = 'tb settings-button';
-                settingsButton.innerHTML = '设置 <span style="font-size: 14px;">⚙️</span>';
-                
-                // 添加设置按钮的点击事件
-                settingsButton.addEventListener('click', () => {
-                    createSettingsModal();
-                });
-
-                grayDiv.appendChild(settingsButton);
-            }
-        }
-    }
-
-    function getTopicId() {
-        const match = window.location.pathname.match(/\/t\/(\d+)/);
-        return match ? match[1] : null;
-    }
-
-    function convertToMarkdown(element) {
-        // 建深度克隆以避免修改原始DOM
-        const clone = element.cloneNode(true);
+        addStyle(c,`
+            .form{display:flex;flex-direction:column;gap:15px}
+            .group{display:flex;align-items:center}
+            .group label{width:85px;text-align:right;margin-right:15px}
+            .group input,.group textarea{flex:1;padding:8px 12px;border:1px solid ${th.b};border-radius:6px;background:${th.i};color:${th.t}}
+            .group textarea{height:100px;resize:vertical}
+            .pwd{position:relative;flex:1;display:flex}
+            .eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;user-select:none;opacity:.7}
+            button{padding:8px 16px;border:none;border-radius:6px;background:${th.i};color:${th.t};cursor:pointer}
+            .primary{background:#0066cc;color:#fff}
+            .github{color:${th.t};text-decoration:none;opacity:.8;display:flex;align-items:center;gap:6px;font-size:14px}
+        `);
         
-        // 处理标题
-        clone.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(header => {
-            const level = header.tagName.charAt(1);
-            const text = header.textContent.trim();
-            header.outerHTML = `\n${'#'.repeat(level)} ${text}\n\n`;
-        });
-
-        // 处理图片
-        clone.querySelectorAll('img').forEach(img => {
-            const src = img.getAttribute('src');
-            const alt = img.getAttribute('alt') || '';
-            img.outerHTML = `\n![${alt}](${src})\n\n`;
-        });
-
-        // 处理视频
-        clone.querySelectorAll('video').forEach(video => {
-            const src = video.getAttribute('src') || video.querySelector('source')?.getAttribute('src');
-            if (src) {
-                video.outerHTML = `\n[视频链接](${src})\n\n`;
-            }
-        });
-
-        // 处理链接
-        clone.querySelectorAll('a').forEach(link => {
-            const href = link.getAttribute('href');
-            const text = link.textContent.trim();
-            if (href && text) {
-                link.outerHTML = `[${text}](${href})`;
-            }
-        });
-
-        // 处理代码块
-        clone.querySelectorAll('pre').forEach(pre => {
-            const code = pre.textContent.trim();
-            pre.outerHTML = `\n\`\`\`\n${code}\n\`\`\`\n\n`;
-        });
-
-        // 处理行内代码
-        clone.querySelectorAll('code:not(pre code)').forEach(code => {
-            const text = code.textContent.trim();
-            code.outerHTML = `\`${text}\``;
-        });
-
-        // 处理粗体
-        clone.querySelectorAll('strong,b').forEach(bold => {
-            const text = bold.textContent.trim();
-            bold.outerHTML = `**${text}**`;
-        });
-
-        // 处理斜体
-        clone.querySelectorAll('em,i').forEach(italic => {
-            const text = italic.textContent.trim();
-            italic.outerHTML = `*${text}*`;
-        });
-
-        // 处理列表
-        clone.querySelectorAll('ul,ol').forEach(list => {
-            const items = Array.from(list.querySelectorAll('li')).map(li => {
-                const text = li.textContent.trim();
-                return list.tagName.toLowerCase() === 'ul' ? 
-                    `- ${text}` : 
-                    `1. ${text}`;
+        // 先将 modal 添加到 body，这样后续的选择器才能找到元素
+        d.body.appendChild(m);
+        
+        // 加载设置
+        const settings=store.get('settings');
+        $('#url',c).value=settings.apiUrl||'';
+        $('#key',c).value=settings.apiKey||'';
+        $('#model',c).value=settings.modelName||'';
+        $('#prompt',c).value=settings.prompt||defaultPrompt;
+        
+        // 绑定事件
+        $('.eye',c).onclick=e=>{
+            const i=$('#key',c);
+            i.type=i.type==='password'?'text':'password';
+            e.target.textContent=i.type==='password'?'🔒':'🔓';
+        };
+        
+        $('#save',c).onclick=()=>{
+            store.set('settings',{
+                apiUrl:$('#url',c).value,
+                apiKey:$('#key',c).value,
+                modelName:$('#model',c).value,
+                prompt:$('#prompt',c).value
             });
-            list.outerHTML = `\n${items.join('\n')}\n\n`;
+            m.remove();
+        };
+        
+        $('#cancel',c).onclick=()=>m.remove();
+        m.onclick=e=>{if(e.target===m)m.remove()};
+    }
+
+    function summary(){
+        const h=$('.header');
+        if(!h)return;
+        const g=$('.gray',h);
+        if(!g||$('.summary-button',g))return;
+        
+        g.insertAdjacentText('beforeend',' ∙ ');
+        const sum=createElement('a',{
+            href:'javascript:void(0)',
+            className:'tb summary-button',
+            innerHTML:'总结 <span style="font-size:14px">✨</span>'
         });
+        
+        sum.onclick=async()=>{
+            // 获取文章内容
+            const content = $('.topic_content')?.textContent.trim();
+            if(!content) return;
+            
+            const container = getContainer();
+            if(!container) return;
+            
+            const cont = $('.summary-content',container);
+            
+            // 如果已经有内容且不是错误消息，直接显示
+            if(container.style.display==='none' && 
+               cont.innerHTML && 
+               !cont.innerHTML.includes('失败')) {
+                container.style.display='block';
+                return;
+            }
+            
+            // 显示加载状态
+            cont.textContent='正在获取评论...';
+            container.style.display='block';
+            
+            // 获取所有评论
+            const comments = await getAllComments();            
+            // 组合文章内容和评论
+            const fullContent = `
+文章内容：
+${content}
 
-        // 处理段落
-        clone.querySelectorAll('p').forEach(p => {
-            const text = p.innerHTML.trim();
-            p.outerHTML = `\n${text}\n\n`;
+评论内容：
+${comments.map(c => c.trim()).join(' ')}`;
+            
+            // 更新状态
+            cont.textContent='正在生成总结...';
+            
+            // 发送到 LLM
+            const sum = await request(fullContent);
+            if(sum){
+                cont.innerHTML = sum;
+            }else{
+                cont.textContent='生成总结失败，请检查设置和网络连接';
+            }
+        };
+        
+        g.appendChild(sum);
+        g.insertAdjacentText('beforeend',' ∙ ');
+        
+        const set=createElement('a',{
+            href:'javascript:void(0)',
+            className:'tb settings-button',
+            innerHTML:'设置 <span style="font-size:14px">⚙️</span>'
         });
-
-        // 获取处理后的内容
-        let content = clone.innerHTML
-            // 处理换行
-            .replace(/<br\s*\/?>/gi, '\n')
-            // 移除剩余的HTML标签
-            .replace(/<[^>]+>/g, '')
-            // 处理HTML实体
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            // 清理多余空行和空格
-            .replace(/\n\s*\n\s*\n/g, '\n\n')
-            .replace(/[ \t]+\n/g, '\n')
-            .trim();
-
-        // 确保段落之间有空行
-        content = content
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line)
-            .join('\n\n');
-
-        return content;
+        set.onclick=modal;
+        g.appendChild(set);
     }
 
-    function getTopicContent() {
-        const contentDiv = document.querySelector('.topic_content');
-        if (contentDiv) {
-            return convertToMarkdown(contentDiv);
-        }
-        return null;
-    }
-
-    function init() {
-        const topicId = getTopicId();
-        if (topicId) {
-            addSummaryButton();
-        }
-    }
-
-    // 等待页面加载完成后执行
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
-
-    // 添加取和保存总结的函数
-    function getSavedSummary(topicId) {
-        const summaries = JSON.parse(localStorage.getItem('v2exArticleSummaries') || '{}');
-        return summaries[topicId];
-    }
-
-    function saveSummary(topicId, summary) {
-        const summaries = JSON.parse(localStorage.getItem('v2exArticleSummaries') || '{}');
-        summaries[topicId] = summary;
-        localStorage.setItem('v2exArticleSummaries', JSON.stringify(summaries));
-    }
-
-    // 修改总结容器，添加重新生成按钮
-    function addSummaryContainer() {
-        const header = document.querySelector('.header');
-        if (header && !document.querySelector('.summary-container')) {
-            // 创建总结内容容器
-            const summaryContainer = document.createElement('div');
-            summaryContainer.className = 'summary-container';
-            summaryContainer.style.cssText = `
-                margin: 10px 0;
-                padding: 15px;
-                background: var(--box-background-color, #fff);
-                border-radius: 6px;
-                font-size: 14px;
-                line-height: 1.6;
-                display: none;
-                border: 1px solid var(--box-border-color, #eee);
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            `;
-
-            // 添加标题栏
-            const titleBar = document.createElement('div');
-            titleBar.style.cssText = `
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 10px;
-                padding-bottom: 8px;
-                border-bottom: 1px solid var(--box-border-color, #eee);
-            `;
+    async function getAllComments() {
+        let allComments = [];
+        
+        // 获取分页信息
+        const pagination = $('.cell.ps_container');
+        let pageInfo = {
+            currentPage: 1,
+            totalPages: 1
+        };
+        
+        if(pagination) {
+            const current = pagination.querySelector('div.page_current');
+            if(current) {
+                pageInfo.currentPage = parseInt(current.textContent);
+            }
             
-            const titleLeft = document.createElement('div');
-            titleLeft.style.cssText = `
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            `;
-            
-            const title = document.createElement('div');
-            title.innerHTML = '📝 文章总结';
-            title.style.fontWeight = '500';
-            
-            const regenerateButton = document.createElement('a');
-            regenerateButton.innerHTML = '🔄 重新生成';
-            regenerateButton.href = 'javascript:void(0);';
-            regenerateButton.className = 'tb';
-            regenerateButton.style.fontSize = '12px';
-            regenerateButton.addEventListener('click', async () => {
-                const content = getTopicContent();
-                if (content) {
-                    const summaryContent = document.querySelector('.summary-content');
-                    summaryContent.textContent = '正在重新生成总结...';
-                    
-                    const summary = await sendSummaryRequest(content);
-                    if (summary) {
-                        const topicId = getTopicId();
-                        saveSummary(topicId, summary);
-                        summaryContent.innerHTML = summary;
+            const pages = [...pagination.querySelectorAll('a.page_normal')];
+            if(pages.length > 0) {
+                const lastPage = parseInt(pages[pages.length - 1].textContent);
+                pageInfo.totalPages = Math.max(lastPage, pageInfo.currentPage);
+            }
+        }        
+        // 获取所有页面的评论
+        const topicId = w.location.pathname.match(/\/t\/(\d+)/)?.[1];
+        if(topicId) {
+            for(let page = 1; page <= pageInfo.totalPages; page++) {
+                try {
+                    if(page === pageInfo.currentPage) {
+                        // 如果是当前页，直接获取DOM中的评论
+                        allComments = allComments.concat(getPageComments(d));
                     } else {
-                        summaryContent.textContent = '生成总结失败，请检查设置和网络连接';
+                        // 获取其他页面的评论
+                        const response = await fetch(`https://www.v2ex.com/t/${topicId}?p=${page}`);
+                        const text = await response.text();
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(text, 'text/html');
+                        
+                        const pageComments = getPageComments(doc);
+                        allComments = allComments.concat(pageComments);
                     }
+                    
+                    if(page < pageInfo.totalPages) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }                    
+                } catch(e) {
+                    console.error(`获取第 ${page} 页评论失败:`, e);
                 }
-            });
-
-            titleLeft.appendChild(title);
-            titleLeft.appendChild(regenerateButton);
-            
-            const closeButton = document.createElement('span');
-            closeButton.innerHTML = '✕';
-            closeButton.style.cssText = `
-                cursor: pointer;
-                opacity: 0.6;
-                font-size: 16px;
-                padding: 4px 8px;
-            `;
-            closeButton.addEventListener('click', () => {
-                summaryContainer.style.display = 'none';
-            });
-
-            titleBar.appendChild(titleLeft);
-            titleBar.appendChild(closeButton);
-            summaryContainer.appendChild(titleBar);
-
-            // 添加内容区
-            const content = document.createElement('div');
-            content.className = 'summary-content';
-            content.style.cssText = `
-                white-space: pre-wrap;
-                word-break: break-word;
-                text-align: left;
-                padding: 10px 0;
-                line-height: 1.8;
-            `;
-            summaryContainer.appendChild(content);
-
-            // 修改插入位置：在 header 后面插入
-            header.parentNode.insertBefore(summaryContainer, header.nextSibling);
-
-            return summaryContainer;
+            }
         }
-        return document.querySelector('.summary-container');
+        
+        return allComments;
     }
 
-    // 添加发送请求的函数
-    async function sendSummaryRequest(content) {
-        // 获取设置
-        const settings = JSON.parse(localStorage.getItem('v2exSummarySettings') || '{}');
+    function getPageComments(doc) {
+        return [...doc.querySelectorAll('div[id^="r_"].cell')]
+            .map(comment => comment.querySelector('.reply_content')?.textContent
+                .replace(/\s+/g, ' ')  // 将多个空白字符替换为单个空格
+                .trim())
+            .filter(Boolean);  // 过滤掉空评论
+    }
+
+    function getContainer(){
+        const h=$('.header');
+        if(!h||$('.summary-container'))return $('.summary-container');
         
-        // 检查必要的设置是否存在
-        if (!settings.apiUrl || !settings.apiKey || !settings.modelName) {
+        const c=createElement('div',{
+            className:'summary-container',
+            style:`margin:10px 0;padding:15px;background:var(--box-background-color,#fff);border-radius:6px;font-size:14px;line-height:1.6;display:none;border:1px solid var(--box-border-color,#eee);box-shadow:0 2px 4px rgba(0,0,0,.05)`
+        });
+        
+        const tb=createElement('div',{
+            style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--box-border-color,#eee)'
+        });
+        
+        const tl=createElement('div',{style:'display:flex;align-items:center;gap:10px'});
+        const title=createElement('div',{innerHTML:'📝 文章总结',style:'font-weight:500'});
+        const regen=createElement('a',{
+            href:'javascript:void(0)',
+            className:'tb',
+            innerHTML:'🔄 重新生成',
+            style:'font-size:12px'
+        });
+        
+        regen.onclick=async()=>{
+            const content=getContent();
+            if(!content)return;
+            
+            const cont=$('.summary-content');
+            cont.textContent='正在重新生成总结...';
+            
+            const sum=await request(content);
+            if(sum){
+                cont.innerHTML=sum;
+            }else{
+                cont.textContent='生成总结失败，请检查设置和网络连接';
+            }
+        };
+        
+        tl.appendChild(title);
+        tl.appendChild(regen);
+        
+        const close=createElement('span',{
+            innerHTML:'✕',
+            style:'cursor:pointer;opacity:.6;font-size:16px;padding:4px 8px'
+        });
+        close.onclick=()=>c.style.display='none';
+        
+        tb.appendChild(tl);
+        tb.appendChild(close);
+        c.appendChild(tb);
+        
+        const cont=createElement('div',{
+            className:'summary-content',
+            style:'white-space:pre-wrap;word-break:break-word;text-align:left;padding:10px 0;line-height:1.8'
+        });
+        c.appendChild(cont);
+        
+        h.parentNode.insertBefore(c,h.nextSibling);
+        return c;
+    }
+
+    async function request(content, retries = 3, timeout = 10000) {
+        const s = store.get('settings');
+        if (!s.apiUrl || !s.apiKey || !s.modelName) {
             alert('请先完成设置（API URL、API Key 和模型名称为必填项）');
             return null;
         }
 
-        try {
-            const response = await fetch(settings.apiUrl, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${settings.apiKey}`,
-                    'Content-Type': 'application/json',
-                    'Accept': '*/*',
-                    'Connection': 'keep-alive'
-                },
-                body: JSON.stringify({
-                    messages: [
-                        {
-                            role: "system",
-                            content: settings.prompt || defaultPrompt
-                        },
-                        {
-                            role: "user",
-                            content: content
-                        }
-                    ],
-                    model: settings.modelName,
-                    stream: false
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+        const fetchWithTimeout = async (url, options, timeout) => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (e) {
+                clearTimeout(timeoutId);
+                throw e;
             }
+        };
 
-            const data = await response.json();
-            return data.choices?.[0]?.message?.content || '总结生成失败，请检查API返回格式';
+        for (let i = 0; i < retries; i++) {
+            try {
+                const r = await fetchWithTimeout(s.apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${s.apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        messages: [
+                            {role: "system", content: s.prompt || defaultPrompt},
+                            {role: "user", content}
+                        ],
+                        model: s.modelName,
+                        stream: false
+                    })
+                }, timeout);
 
-        } catch (error) {
-            alert(`请求失败: ${error.message}`);
-            return null;
+                if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+                const d = await r.json();
+                return d.choices?.[0]?.message?.content || '总结生成失败，请检查API返回格式';
+
+            } catch (e) {
+                if (i === retries - 1) {
+                    // 最后一次重试失败才显示错误
+                    alert(`请求失败: ${e.message}`);
+                    return null;
+                }
+                // 等待后重试
+                await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+                console.log(`第 ${i + 1} 次重试失败，准备重试...`);
+            }
         }
     }
+
+    function createElement(tag,props={}){
+        const el=d.createElement(tag);
+        Object.assign(el,props);
+        return el;
+    }
+
+    function addStyle(el,css){
+        const s=createElement('style');
+        s.textContent=css;
+        el.appendChild(s);
+    }
+
+    if(d.readyState==='loading')d.addEventListener('DOMContentLoaded',summary);
+    else summary();
 })(); 
