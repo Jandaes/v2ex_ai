@@ -14,7 +14,7 @@
 ## 安装
 
 1. 首先安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
-2. [点击这里](链接到你的脚本) 安装脚本
+2. [点击这里](https://greasyfork.org/zh-CN/scripts/521732-v2ex-%E6%96%87%E7%AB%A0%E6%80%BB%E7%BB%93%E5%8A%A9%E6%89%8B) 安装脚本
 
 ## 使用方法
 
@@ -37,8 +37,7 @@
 
 ## 作者
 
-- 作者：janda
-- 主页：[v2ex_ai](https://github.com/Jandaes/v2ex_ai)
+- GitHub：[https://github.com/Jandaes/v2ex_ai](https://github.com/Jandaes/v2ex_ai)
 
 ## 许可证
 
@@ -46,7 +45,7 @@ MIT License
 
 ## 更新日志
 
-### v0.1
+### v1.0
 - 初始版本发布
 - 基础总结功能
 - 设置界面
